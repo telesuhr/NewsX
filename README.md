@@ -19,7 +19,7 @@ NewsXは、ニュース記事を検索し、AIを使って要約するツール�
 
 1. リポジトリをクローン
 ```bash
-git clone https://github.com/yourusername/NewsX.git
+git clone https://github.com/telesuhr/NewsX.git
 cd NewsX
 ```
 

@@ -1,0 +1,7 @@
+flask==2.3.3
+python-dotenv==1.0.0
+requests==2.31.0
+openai>=1.0.0
+tweepy==4.14.0
+newsapi-python==0.2.7
+flask-cors==4.0.0

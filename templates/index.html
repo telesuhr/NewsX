@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NewsX - ニュース要約＆投稿ツール</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <style>
+        .article-card {
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+        }
+        .summary-box {
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div id="app" class="container mt-4">
+        <h1 class="mb-4">NewsX - ニュース要約＆投稿ツール</h1>
+        
+        <!-- 検索フォーム -->
+        <div class="row mb-4">
+            <div class="col">
+                <div class="input-group">
+                    <input type="text" class="form-control" v-model="searchQuery" placeholder="検索キーワードを入力" @keyup.enter="searchNews">
+                    <button class="btn btn-primary" @click="searchNews" :disabled="isLoading">
+                        {% raw %}{{ isLoading ? '検索中...' : 'ニュース検索' }}{% endraw %}
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- エラーメッセージ -->
+        <div v-if="error" class="alert alert-danger" role="alert">
+            {% raw %}{{ error }}{% endraw %}
+        </div>
+
+        <!-- ニュース一覧 -->
+        <div v-if="news.length > 0">
+            <div v-for="article in news" :key="article.url" class="article-card">
+                <h3>{% raw %}{{ article.title }}{% endraw %}</h3>
+                <p>{% raw %}{{ article.description }}{% endraw %}</p>
+                <p><small>Source: {% raw %}{{ article.source.name }}{% endraw %} | Published: {% raw %}{{ formatDate(article.publishedAt) }}{% endraw %}</small></p>
+                <a :href="article.url" target="_blank" class="btn btn-sm btn-outline-primary">原文を読む</a>
+                <button class="btn btn-sm btn-outline-success ms-2" @click="summarizeArticle(article)" :disabled="article.isSummarizing">
+                    {% raw %}{{ article.isSummarizing ? '要約中...' : '要約' }}{% endraw %}
+                </button>
+                <div v-if="article.summary" class="summary-box">
+                    <h5>要約:</h5>
+                    <p>{% raw %}{{ article.summary }}{% endraw %}</p>
+                </div>
+            </div>
+        </div>
+        <div v-else-if="!isLoading && !error" class="alert alert-info">
+            検索結果が見つかりませんでした。検索キーワードを入力してニュースを検索してください。
+        </div>
+    </div>
+
+    <script>
+        const { createApp } = Vue
+
+        createApp({
+            data() {
+                return {
+                    searchQuery: '',
+                    news: [],
+                    isLoading: false,
+                    error: null
+                }
+            },
+            methods: {
+                searchNews() {
+                    if (!this.searchQuery) return;
+                    
+                    this.isLoading = true;
+                    this.error = null;
+                    this.news = [];
+
+                    axios.get(`/api/news?query=${encodeURIComponent(this.searchQuery)}`)
+                        .then(response => {
+                            this.isLoading = false;
+                            if (response.data.error) {
+                                this.error = response.data.error;
+                            } else {
+                                this.news = response.data.articles.map(article => ({
+                                    ...article,
+                                    isSummarizing: false,
+                                    summary: null
+                                }));
+                            }
+                        })
+                        .catch(error => {
+                            this.isLoading = false;
+                            this.error = 'ニュースの取得に失敗しました: ' + error.message;
+                        });
+                },
+                summarizeArticle(article) {
+                    article.isSummarizing = true;
+                    const text = `${article.title}\n\n${article.description || ''}\n\n${article.content || ''}`;
+                    
+                    axios.post('/api/summarize', {
+                        text
+                    })
+                    .then(response => {
+                        article.isSummarizing = false;
+                        if (response.data.error) {
+                            this.error = response.data.error;
+                        } else {
+                            article.summary = response.data.summary;
+                        }
+                    })
+                    .catch(error => {
+                        article.isSummarizing = false;
+                        this.error = '要約に失敗しました: ' + error.message;
+                    });
+                },
+                formatDate(dateString) {
+                    return new Date(dateString).toLocaleString();
+                }
+            }
+        }).mount('#app')
+    </script>
+</body>
+</html>

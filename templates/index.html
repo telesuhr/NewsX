@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>NewsX - ニュース要約＆投稿ツール</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
     <style>
@@ -20,6 +20,19 @@
             background-color: #f8f9fa;
             border-radius: 4px;
         }
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(0,0,0,.3);
+            border-radius: 50%;
+            border-top-color: #000;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
@@ -30,32 +43,56 @@
         <div class="row mb-4">
             <div class="col">
                 <div class="input-group">
-                    <input type="text" class="form-control" v-model="searchQuery" placeholder="検索キーワードを入力" @keyup.enter="searchNews">
+                    <input type="text" class="form-control" v-model="searchQuery" @keyup.enter="searchNews" placeholder="検索キーワードを入力...">
                     <button class="btn btn-primary" @click="searchNews" :disabled="isLoading">
-                        {% raw %}{{ isLoading ? '検索中...' : 'ニュース検索' }}{% endraw %}
+                        <span v-if="isLoading" class="loading"></span>
+                        <span v-else>ニュース検索</span>
                     </button>
                 </div>
             </div>
         </div>
 
         <!-- エラーメッセージ -->
-        <div v-if="error" class="alert alert-danger" role="alert">
-            {% raw %}{{ error }}{% endraw %}
-        </div>
+        <div v-if="error" class="alert alert-danger" role="alert" v-text="error"></div>
 
         <!-- ニュース一覧 -->
         <div v-if="news.length > 0">
-            <div v-for="article in news" :key="article.url" class="article-card">
-                <h3>{% raw %}{{ article.title }}{% endraw %}</h3>
-                <p>{% raw %}{{ article.description }}{% endraw %}</p>
-                <p><small>Source: {% raw %}{{ article.source.name }}{% endraw %} | Published: {% raw %}{{ formatDate(article.publishedAt) }}{% endraw %}</small></p>
-                <a :href="article.url" target="_blank" class="btn btn-sm btn-outline-primary">原文を読む</a>
-                <button class="btn btn-sm btn-outline-success ms-2" @click="summarizeArticle(article)" :disabled="article.isSummarizing">
-                    {% raw %}{{ article.isSummarizing ? '要約中...' : '要約' }}{% endraw %}
-                </button>
-                <div v-if="article.summary" class="summary-box">
-                    <h5>要約:</h5>
-                    <p>{% raw %}{{ article.summary }}{% endraw %}</p>
+            <div v-for="(article, index) in news" :key="article.url" class="article-card">
+                <h3 v-text="article.title"></h3>
+                <p v-text="article.description"></p>
+                <p><small>Source: <span v-text="article.source.name"></span> | Published: <span v-text="formatDate(article.publishedAt)"></span></small></p>
+                
+                <!-- アクションボタン -->
+                <div class="d-flex gap-2">
+                    <a :href="article.url" target="_blank" class="btn btn-primary">記事を読む</a>
+                    <div class="dropdown">
+                        <button class="btn btn-success dropdown-toggle" type="button" :id="'dropdownMenu' + index" data-bs-toggle="dropdown" aria-expanded="false">
+                            要約する
+                        </button>
+                        <ul class="dropdown-menu" :aria-labelledby="'dropdownMenu' + index">
+                            <li><button class="dropdown-item" @click="summarizeArticle(article, 'ojaru')">おじゃる丸風に要約</button></li>
+                            <li><button class="dropdown-item" @click="summarizeArticle(article, 'analyst')">経済アナリスト風に要約</button></li>
+                            <li><button class="dropdown-item" @click="summarizeArticle(article, 'investor')">投資家風に要約</button></li>
+                            <li><button class="dropdown-item" @click="summarizeArticle(article, 'techwriter')">ITライター風に要約</button></li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- 要約結果の表示 -->
+                <div v-if="article.summary" class="mt-3">
+                    <div class="alert alert-success">
+                        <h6 class="alert-heading">要約:</h6>
+                        <p class="mb-0" style="white-space: pre-line" v-text="article.summary"></p>
+                        <div class="mt-3">
+                            <button class="btn btn-primary" @click="postToX(article)" :disabled="article.isPosting">
+                                <span v-if="article.isPosting">投稿中...</span>
+                                <span v-else>Xに投稿</span>
+                            </button>
+                            <div v-if="article.tweetUrl" class="mt-2">
+                                <a :href="article.tweetUrl" target="_blank" class="text-primary">投稿を見る ↗</a>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -63,6 +100,9 @@
             検索結果が見つかりませんでした。検索キーワードを入力してニュースを検索してください。
         </div>
     </div>
+
+    <!-- Bootstrap Bundle with Popper -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
 
     <script>
         const { createApp } = Vue
@@ -77,50 +117,77 @@
                 }
             },
             methods: {
-                searchNews() {
+                async searchNews() {
                     if (!this.searchQuery) return;
                     
                     this.isLoading = true;
                     this.error = null;
                     this.news = [];
 
-                    axios.get(`/api/news?query=${encodeURIComponent(this.searchQuery)}`)
-                        .then(response => {
-                            this.isLoading = false;
-                            if (response.data.error) {
-                                this.error = response.data.error;
-                            } else {
-                                this.news = response.data.articles.map(article => ({
-                                    ...article,
-                                    isSummarizing: false,
-                                    summary: null
-                                }));
-                            }
-                        })
-                        .catch(error => {
-                            this.isLoading = false;
-                            this.error = 'ニュースの取得に失敗しました: ' + error.message;
+                    try {
+                        const response = await axios.get(`/api/news?query=${encodeURIComponent(this.searchQuery)}`);
+                        if (response.data.error) {
+                            this.error = response.data.error;
+                        } else {
+                            this.news = response.data.articles.map(article => ({
+                                ...article,
+                                isSummarizing: false,
+                                summary: null,
+                                isPosting: false,
+                                tweetUrl: null
+                            }));
+                        }
+                    } catch (error) {
+                        this.error = 'ニュースの取得に失敗しました: ' + error.message;
+                    } finally {
+                        this.isLoading = false;
+                        this.$nextTick(() => {
+                            const dropdowns = document.querySelectorAll('.dropdown-toggle');
+                            dropdowns.forEach(dropdown => {
+                                new bootstrap.Dropdown(dropdown);
+                            });
                         });
+                    }
                 },
-                summarizeArticle(article) {
+                async summarizeArticle(article, character) {
                     article.isSummarizing = true;
                     const text = `${article.title}\n\n${article.description || ''}\n\n${article.content || ''}`;
                     
-                    axios.post('/api/summarize', {
-                        text
-                    })
-                    .then(response => {
+                    try {
+                        const response = await axios.post('/api/summarize', {
+                            text,
+                            character
+                        });
                         article.isSummarizing = false;
                         if (response.data.error) {
                             this.error = response.data.error;
                         } else {
                             article.summary = response.data.summary;
                         }
-                    })
-                    .catch(error => {
+                    } catch (error) {
                         article.isSummarizing = false;
                         this.error = '要約に失敗しました: ' + error.message;
-                    });
+                    }
+                },
+                async postToX(article) {
+                    if (!article.summary) return;
+                    
+                    article.isPosting = true;
+                    try {
+                        const response = await axios.post('/api/post_to_x', {
+                            text: article.summary,
+                            url: article.url
+                        });
+                        if (response.data.error) {
+                            this.error = response.data.error;
+                        } else {
+                            article.tweetUrl = response.data.tweet_url;
+                        }
+                    } catch (error) {
+                        this.error = '投稿に失敗しました: ' + error.message;
+                    } finally {
+                        article.isPosting = false;
+                    }
                 },
                 formatDate(dateString) {
                     return new Date(dateString).toLocaleString();
